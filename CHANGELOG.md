@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.1] - 2025-09-04
+
+### Fixed
+
+-   **Repository URL**: Fixed incorrect GitHub repository URL in package.json metadata
+    -   Updated from `https://github.com/utkarsh-mishra/jenkins-mcp-server.git`
+    -   To correct URL: `https://github.com/umishra1504/Jenkins-mcp-server.git`
+-   **Homepage and Bugs URLs**: Updated to point to correct GitHub repository
+-   **npm Registry**: Package now displays correct repository links
+
 ## [1.0.0] - 2025-09-04
 
 ### Added
