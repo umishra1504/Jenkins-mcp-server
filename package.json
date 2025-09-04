@@ -9,11 +9,13 @@
 	},
 	"scripts": {
 		"start": "node src/index.js",
-		"dev": "nodemon src/index.js",
+		"dev": "nodemon src/index.js", 
 		"test": "node --test",
 		"lint": "echo 'No linter configured. Consider adding ESLint.'",
 		"check": "node --check src/index.js",
-		"prepublishOnly": "npm run check"
+		"prepublishOnly": "npm run check",
+		"setup": "node -e \"console.log('Run setup.sh (Unix) or setup.ps1 (Windows) for guided setup')\"",
+		"postinstall": "echo '\n🎉 Jenkins MCP Server installed! See QUICK_START.md for setup instructions.\n'"
 	},
 	"dependencies": {
 		"@modelcontextprotocol/sdk": "^0.5.0",
@@ -55,6 +57,11 @@
 	"files": [
 		"src/",
 		"README.md",
-		"LICENSE"
+		"LICENSE",
+		"USER_GUIDE.md", 
+		"QUICK_START.md",
+		"CHANGELOG.md",
+		"setup.sh",
+		"setup.ps1"
 	]
 }
