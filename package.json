@@ -1,6 +1,6 @@
 {
 	"name": "jenkins-mcp-server",
-	"version": "1.0.0",
+	"version": "1.0.1",
 	"description": "A comprehensive Jenkins Model Context Protocol (MCP) server for managing builds, jobs, artifacts, and queue operations",
 	"main": "src/index.js",
 	"type": "module",
