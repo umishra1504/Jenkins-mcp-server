@@ -43,11 +43,11 @@
 	"license": "MIT",
 	"repository": {
 		"type": "git",
-		"url": "https://github.com/utkarsh-mishra/jenkins-mcp-server.git"
+		"url": "https://github.com/umishra1504/Jenkins-mcp-server.git"
 	},
-	"homepage": "https://github.com/utkarsh-mishra/jenkins-mcp-server#readme",
+	"homepage": "https://github.com/umishra1504/Jenkins-mcp-server#readme",
 	"bugs": {
-		"url": "https://github.com/utkarsh-mishra/jenkins-mcp-server/issues"
+		"url": "https://github.com/umishra1504/Jenkins-mcp-server/issues"
 	},
 	"engines": {
 		"node": ">=18.0.0"
