@@ -9,6 +9,7 @@ import {
 	formatError,
 } from "../utils/jenkins.js";
 
+
 /**
  * Trigger a build for a Jenkins job
  */
@@ -17,25 +18,67 @@ export async function triggerBuild(client, args) {
 	const jobPath = encodeJobPath(jobFullName);
 
 	try {
+		// First, get the CSRF token (crumb) if CSRF protection is enabled
+		let crumb = null;
+		let crumbField = null;
+		
+		try {
+			const crumbResponse = await client.get(`${client.baseUrl}/crumbIssuer/api/json`);
+			if (crumbResponse.status === 200) {
+				crumb = crumbResponse.data.crumb;
+				crumbField = crumbResponse.data.crumbRequestField || "Jenkins-Crumb";
+			}
+		} catch (error) {
+			// CSRF might be disabled, continue without it
+			console.log("CSRF protection might be disabled or not accessible");
+		}
+
 		const hasParameters = Object.keys(parameters).length > 0;
 		let response;
+		
+		// Prepare headers
+		const headers = {
+			"Content-Type": "application/x-www-form-urlencoded",
+		};
+		
+		// Add CSRF token if available
+		if (crumb && crumbField) {
+			headers[crumbField] = crumb;
+		}
 
 		if (hasParameters) {
-			const queryParams = new URLSearchParams();
+			// For parameterized builds
+			const formData = new URLSearchParams();
+			
+			// Add parameters
 			Object.entries(parameters).forEach(([key, value]) => {
-				queryParams.append(key, String(value));
+				// Use 'parameter' format that Jenkins expects
+				formData.append(`name`, key);
+				formData.append(`value`, String(value));
 			});
+			
+			// Alternative format - try this if above doesn't work
+			// Object.entries(parameters).forEach(([key, value]) => {
+			//     formData.append(key, String(value));
+			// });
 
 			response = await client.post(
-				`${
-					client.baseUrl
-				}/job/${jobPath}/buildWithParameters?${queryParams.toString()}`,
-				null
+				`${client.baseUrl}/job/${jobPath}/buildWithParameters`,
+				formData.toString(),
+				{ headers }
 			);
 		} else {
+			// For non-parameterized builds, Jenkins might expect at least an empty form
+			// or a specific parameter
+			const formData = new URLSearchParams();
+			
+			// Some Jenkins versions expect a 'json' parameter even if empty
+			formData.append("json", "{}");
+			
 			response = await client.post(
 				`${client.baseUrl}/job/${jobPath}/build`,
-				null
+				formData.toString(),
+				{ headers }
 			);
 		}
 
@@ -73,82 +116,6 @@ export async function triggerBuild(client, args) {
 }
 
 /**
- * Stop/kill a running Jenkins build
- */
-export async function stopBuild(client, args) {
-	const { jobFullName, buildNumber = null } = args;
-	const jobPath = encodeJobPath(jobFullName);
-	const buildPath = buildNumber || "lastBuild";
-
-	try {
-		// Get actual build number and check if build is running
-		const buildInfo = await client.get(
-			`${client.baseUrl}/job/${jobPath}/${buildPath}/api/json?tree=number,building,result,url`
-		);
-
-		if (buildInfo.status !== 200) {
-			return {
-				success: false,
-				message: `Build not found: ${jobFullName}#${buildPath}`,
-			};
-		}
-
-		const actualBuildNumber = buildInfo.data.number;
-		const isBuilding = buildInfo.data.building;
-		const buildUrl = buildInfo.data.url;
-
-		if (!isBuilding) {
-			return {
-				success: false,
-				message: `Build #${actualBuildNumber} is not currently running`,
-				buildResult: buildInfo.data.result,
-				buildUrl: buildUrl,
-			};
-		}
-
-		// Try to stop the build (graceful stop)
-		const stopResponse = await client.post(
-			`${client.baseUrl}/job/${jobPath}/${actualBuildNumber}/stop`,
-			null
-		);
-
-		if (isSuccessStatus(stopResponse.status)) {
-			return {
-				success: true,
-				message: `Build #${actualBuildNumber} stop request sent successfully`,
-				buildNumber: actualBuildNumber,
-				buildUrl: buildUrl,
-				action: "stop",
-			};
-		}
-
-		// If stop fails, try kill (forceful termination)
-		const killResponse = await client.post(
-			`${client.baseUrl}/job/${jobPath}/${actualBuildNumber}/kill`,
-			null
-		);
-
-		if (isSuccessStatus(killResponse.status)) {
-			return {
-				success: true,
-				message: `Build #${actualBuildNumber} kill request sent successfully`,
-				buildNumber: actualBuildNumber,
-				buildUrl: buildUrl,
-				action: "kill",
-			};
-		}
-
-		return {
-			success: false,
-			message: `Failed to stop build #${actualBuildNumber}`,
-			statusCode: stopResponse.status,
-		};
-	} catch (error) {
-		return formatError(error, "stop build");
-	}
-}
-
-/**
  * Schedule a Jenkins build to run at a specific time
  */
 export async function scheduleBuild(client, args) {
@@ -161,21 +128,53 @@ export async function scheduleBuild(client, args) {
 		const delayInMs = scheduledDate.getTime() - now.getTime();
 		const delayInSeconds = Math.floor(delayInMs / 1000);
 
-		const queryParams = new URLSearchParams();
-		queryParams.append("delay", `${delayInSeconds}sec`);
+		// Get CSRF token
+		let crumb = null;
+		let crumbField = null;
+		
+		try {
+			const crumbResponse = await client.get(`${client.baseUrl}/crumbIssuer/api/json`);
+			if (crumbResponse.status === 200) {
+				crumb = crumbResponse.data.crumb;
+				crumbField = crumbResponse.data.crumbRequestField || "Jenkins-Crumb";
+			}
+		} catch (error) {
+			// CSRF might be disabled
+			console.log("CSRF protection might be disabled or not accessible");
+		}
 
+		// Prepare headers
+		const headers = {
+			"Content-Type": "application/x-www-form-urlencoded",
+		};
+		
+		if (crumb && crumbField) {
+			headers[crumbField] = crumb;
+		}
+
+		// Build form data
+		const formData = new URLSearchParams();
+		
+		// Add delay parameter
+		formData.append("delay", `${delayInSeconds}sec`);
+		
+		// Add job parameters
 		Object.entries(parameters).forEach(([key, value]) => {
-			queryParams.append(key, String(value));
+			formData.append(key, String(value));
 		});
 
 		const hasParameters = Object.keys(parameters).length > 0;
 		const endpoint = hasParameters ? "buildWithParameters" : "build";
+		
+		// For non-parameterized builds with delay, add json parameter
+		if (!hasParameters) {
+			formData.append("json", JSON.stringify({ parameter: [] }));
+		}
 
 		const response = await client.post(
-			`${
-				client.baseUrl
-			}/job/${jobPath}/${endpoint}?${queryParams.toString()}`,
-			null
+			`${client.baseUrl}/job/${jobPath}/${endpoint}`,
+			formData.toString(),
+			{ headers }
 		);
 
 		const isSuccess = isSuccessStatus(response.status);
@@ -213,6 +212,7 @@ export async function scheduleBuild(client, args) {
 		return formatError(error, "schedule build");
 	}
 }
+
 
 /**
  * Update build display name and/or description
@@ -300,5 +300,81 @@ export async function updateBuild(client, args) {
 		};
 	} catch (error) {
 		return formatError(error, "update build");
+	}
+}
+
+/**
+ * Stop/kill a running Jenkins build
+ */
+export async function stopBuild(client, args) {
+	const { jobFullName, buildNumber = null } = args;
+	const jobPath = encodeJobPath(jobFullName);
+	const buildPath = buildNumber || "lastBuild";
+
+	try {
+		// Get actual build number and check if build is running
+		const buildInfo = await client.get(
+			`${client.baseUrl}/job/${jobPath}/${buildPath}/api/json?tree=number,building,result,url`
+		);
+
+		if (buildInfo.status !== 200) {
+			return {
+				success: false,
+				message: `Build not found: ${jobFullName}#${buildPath}`,
+			};
+		}
+
+		const actualBuildNumber = buildInfo.data.number;
+		const isBuilding = buildInfo.data.building;
+		const buildUrl = buildInfo.data.url;
+
+		if (!isBuilding) {
+			return {
+				success: false,
+				message: `Build #${actualBuildNumber} is not currently running`,
+				buildResult: buildInfo.data.result,
+				buildUrl: buildUrl,
+			};
+		}
+
+		// Try to stop the build (graceful stop)
+		const stopResponse = await client.post(
+			`${client.baseUrl}/job/${jobPath}/${actualBuildNumber}/stop`,
+			null
+		);
+
+		if (isSuccessStatus(stopResponse.status)) {
+			return {
+				success: true,
+				message: `Build #${actualBuildNumber} stop request sent successfully`,
+				buildNumber: actualBuildNumber,
+				buildUrl: buildUrl,
+				action: "stop",
+			};
+		}
+
+		// If stop fails, try kill (forceful termination)
+		const killResponse = await client.post(
+			`${client.baseUrl}/job/${jobPath}/${actualBuildNumber}/kill`,
+			null
+		);
+
+		if (isSuccessStatus(killResponse.status)) {
+			return {
+				success: true,
+				message: `Build #${actualBuildNumber} kill request sent successfully`,
+				buildNumber: actualBuildNumber,
+				buildUrl: buildUrl,
+				action: "kill",
+			};
+		}
+
+		return {
+			success: false,
+			message: `Failed to stop build #${actualBuildNumber}`,
+			statusCode: stopResponse.status,
+		};
+	} catch (error) {
+		return formatError(error, "stop build");
 	}
 }
