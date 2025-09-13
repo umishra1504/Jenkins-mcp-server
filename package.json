@@ -1,6 +1,6 @@
 {
 	"name": "jenkins-mcp-server",
-	"version": "1.0.2",
+	"version": "1.0.3",
 	"description": "🚀 AI-powered Jenkins management via Model Context Protocol. Trigger builds, manage jobs, and monitor CI/CD pipelines through your favorite AI assistant.",
 	"main": "src/index.js",
 	"type": "module",
