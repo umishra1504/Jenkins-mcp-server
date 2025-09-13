@@ -2,7 +2,13 @@
  * Artifact Management Tools
  */
 
-import { encodeJobPath, getMimeType, formatError } from "../utils/jenkins.js";
+import {
+	encodeJobPath,
+	getMimeType,
+	formatError,
+	success,
+	failure,
+} from "../utils/jenkins.js";
 
 /**
  * List all artifacts from a specific build or the last build
@@ -21,8 +27,7 @@ export async function listBuildArtifacts(client, args) {
 			const build = response.data;
 			const artifacts = build.artifacts || [];
 
-			return {
-				success: true,
+			return success("listBuildArtifacts", {
 				buildNumber: build.number,
 				buildUrl: build.url,
 				buildResult: build.result,
@@ -34,13 +39,14 @@ export async function listBuildArtifacts(client, args) {
 					downloadUrl: `${client.baseUrl}/job/${jobPath}/${build.number}/artifact/${artifact.relativePath}`,
 				})),
 				totalArtifacts: artifacts.length,
-			};
+			});
 		}
 
-		return {
-			success: false,
-			message: `Build not found: ${jobFullName}#${buildPath}`,
-		};
+		return failure(
+			"listBuildArtifacts",
+			`Build not found: ${jobFullName}#${buildPath}`,
+			{ statusCode: response.status }
+		);
 	} catch (error) {
 		return formatError(error, "list artifacts");
 	}
@@ -86,7 +92,6 @@ export async function readBuildArtifact(client, args) {
 				content = Buffer.from(response.data).toString("base64");
 			} else {
 				content = response.data;
-				// Try to parse JSON if it looks like JSON
 				const extension = artifactPath.split(".").pop().toLowerCase();
 				if (
 					extension === "json" ||
@@ -95,14 +100,11 @@ export async function readBuildArtifact(client, args) {
 				) {
 					try {
 						content = JSON.parse(content);
-					} catch (e) {
-						// Keep as string if parsing fails
-					}
+					} catch {}
 				}
 			}
 
-			return {
-				success: true,
+			return success("readBuildArtifact", {
 				artifact: {
 					path: artifactPath,
 					buildNumber: actualBuildNumber,
@@ -111,20 +113,22 @@ export async function readBuildArtifact(client, args) {
 					size: response.headers["content-length"] || null,
 					content,
 				},
-			};
+			});
 		}
 
-		return {
-			success: false,
-			message: `Artifact not found: ${artifactPath} in build ${actualBuildNumber}`,
-		};
+		return failure(
+			"readBuildArtifact",
+			`Artifact not found: ${artifactPath} in build ${actualBuildNumber}`,
+			{ statusCode: response.status }
+		);
 	} catch (error) {
 		if (error.response && error.response.status === 404) {
-			return {
-				success: false,
-				message: `Artifact not found: ${artifactPath}`,
-			};
+			return failure(
+				"readBuildArtifact",
+				`Artifact not found: ${artifactPath}`,
+				{ statusCode: 404 }
+			);
 		}
-		return formatError(error, "read artifact");
+		return formatError(error, "readBuildArtifact");
 	}
 }

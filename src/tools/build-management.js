@@ -1,117 +1,95 @@
-/**
- * Build Management Tools
- */
-
 import {
 	encodeJobPath,
 	parseScheduleTime,
 	isSuccessStatus,
 	formatError,
+	success,
+	failure,
 } from "../utils/jenkins.js";
-
+import FormData from "form-data";
+import fs from "node:fs";
+import path from "node:path";
 
 /**
- * Trigger a build for a Jenkins job
+ * Trigger a build for a Jenkins build
  */
 export async function triggerBuild(client, args) {
 	const { jobFullName, parameters = {} } = args;
-	const jobPath = encodeJobPath(jobFullName);
+	if (!jobFullName) return failure("triggerBuild", "jobFullName is required");
+	const jobPath = encodeURIComponent(jobFullName).replace(/%2F/g, "/");
+	const allowAbsolute = process.env.ALLOW_ABSOLUTE_FILE_PARAMS === "1";
 
 	try {
-		// First, get the CSRF token (crumb) if CSRF protection is enabled
-		let crumb = null;
-		let crumbField = null;
-		
-		try {
-			const crumbResponse = await client.get(`${client.baseUrl}/crumbIssuer/api/json`);
-			if (crumbResponse.status === 200) {
-				crumb = crumbResponse.data.crumb;
-				crumbField = crumbResponse.data.crumbRequestField || "Jenkins-Crumb";
+		const form = new FormData();
+		const jsonParams = { parameter: [] };
+		let fileIndex = 0;
+
+		for (const [key, value] of Object.entries(parameters)) {
+			if (typeof value === "string") {
+				const potentialPath = value;
+				const isAbsolute = path.isAbsolute(potentialPath);
+				const withinCwd =
+					!isAbsolute || potentialPath.startsWith(process.cwd());
+				const exists =
+					withinCwd &&
+					fs.existsSync(potentialPath) &&
+					fs.statSync(potentialPath).isFile();
+
+				if (exists && (!isAbsolute || allowAbsolute)) {
+					const fileFieldName = `file${fileIndex}`;
+					form.append(
+						fileFieldName,
+						fs.createReadStream(potentialPath),
+						path.basename(potentialPath)
+					);
+					jsonParams.parameter.push({
+						name: key,
+						file: fileFieldName,
+					});
+					fileIndex++;
+					continue;
+				} else if (isAbsolute && !allowAbsolute && exists) {
+					return failure(
+						"triggerBuild",
+						`Absolute file paths are not allowed: ${potentialPath}. Set ALLOW_ABSOLUTE_FILE_PARAMS=1 to override.`
+					);
+				}
 			}
-		} catch (error) {
-			// CSRF might be disabled, continue without it
-			console.log("CSRF protection might be disabled or not accessible");
+
+			// Regular parameter fallback
+			jsonParams.parameter.push({ name: key, value: String(value) });
 		}
 
-		const hasParameters = Object.keys(parameters).length > 0;
-		let response;
-		
-		// Prepare headers
-		const headers = {
-			"Content-Type": "application/x-www-form-urlencoded",
-		};
-		
-		// Add CSRF token if available
-		if (crumb && crumbField) {
-			headers[crumbField] = crumb;
-		}
+		form.append("json", JSON.stringify(jsonParams));
 
-		if (hasParameters) {
-			// For parameterized builds
-			const formData = new URLSearchParams();
-			
-			// Add parameters
-			Object.entries(parameters).forEach(([key, value]) => {
-				// Use 'parameter' format that Jenkins expects
-				formData.append(`name`, key);
-				formData.append(`value`, String(value));
-			});
-			
-			// Alternative format - try this if above doesn't work
-			// Object.entries(parameters).forEach(([key, value]) => {
-			//     formData.append(key, String(value));
-			// });
+		const response = await client.post(
+			`${client.baseUrl}/job/${jobPath}/build`,
+			form,
+			{
+				headers: form.getHeaders(),
+				maxContentLength: Infinity,
+				maxBodyLength: Infinity,
+			}
+		);
 
-			response = await client.post(
-				`${client.baseUrl}/job/${jobPath}/buildWithParameters`,
-				formData.toString(),
-				{ headers }
-			);
-		} else {
-			// For non-parameterized builds, Jenkins might expect at least an empty form
-			// or a specific parameter
-			const formData = new URLSearchParams();
-			
-			// Some Jenkins versions expect a 'json' parameter even if empty
-			formData.append("json", "{}");
-			
-			response = await client.post(
-				`${client.baseUrl}/job/${jobPath}/build`,
-				formData.toString(),
-				{ headers }
-			);
-		}
-
-		const isSuccess = isSuccessStatus(response.status);
-
-		if (isSuccess) {
+		if (response.status >= 200 && response.status < 300) {
 			const location =
 				response.headers["location"] || response.headers["Location"];
-			let queueId = null;
-
-			if (location) {
-				const match = location.match(/queue\/item\/(\d+)/);
-				queueId = match ? match[1] : null;
-			}
-
-			return {
-				success: true,
+			const queueId = location?.match(/queue\/item\/(\d+)/)?.[1] || null;
+			return success("triggerBuild", {
 				message: `Build triggered successfully for ${jobFullName}`,
 				queueUrl: location || null,
-				queueId: queueId,
+				queueId,
 				statusCode: response.status,
-			};
-		} else {
-			return {
-				success: false,
-				message: `Build trigger returned status ${response.status}`,
-				statusCode: response.status,
-				statusText: response.statusText,
-				data: response.data,
-			};
+			});
 		}
+		return failure(
+			"triggerBuild",
+			`Build trigger returned status ${response.status}`,
+			{ statusCode: response.status, data: response.data }
+		);
 	} catch (error) {
-		return formatError(error, "trigger build");
+		return formatError(error, "triggerBuild");
 	}
 }
 
@@ -119,100 +97,75 @@ export async function triggerBuild(client, args) {
  * Schedule a Jenkins build to run at a specific time
  */
 export async function scheduleBuild(client, args) {
-	const { jobFullName, scheduleTime, parameters = {} } = args;
-	const jobPath = encodeJobPath(jobFullName);
+	const { jobFullName, parameters = {}, scheduleTime } = args;
+	if (!jobFullName)
+		return failure("scheduleBuild", "jobFullName is required");
+	if (!scheduleTime)
+		return failure("scheduleBuild", "scheduleTime is required");
+	const allowAbsolute = process.env.ALLOW_ABSOLUTE_FILE_PARAMS === "1";
+
+	let scheduledDate;
+	try {
+		scheduledDate = parseScheduleTime(scheduleTime);
+	} catch (e) {
+		return failure("scheduleBuild", e.message);
+	}
+	const now = new Date();
+	const delayInSeconds = Math.max(
+		0,
+		Math.floor((scheduledDate - now) / 1000)
+	);
+	const jobPath = encodeURIComponent(jobFullName).replace(/%2F/g, "/");
+
+	const form = new FormData();
+	for (const [key, value] of Object.entries(parameters)) {
+		if (typeof value === "string") {
+			const potentialPath = value;
+			const isAbsolute = path.isAbsolute(potentialPath);
+			const withinCwd =
+				!isAbsolute || potentialPath.startsWith(process.cwd());
+			const exists =
+				withinCwd &&
+				fs.existsSync(potentialPath) &&
+				fs.statSync(potentialPath).isFile();
+			if (exists && (!isAbsolute || allowAbsolute)) {
+				form.append(
+					key,
+					fs.createReadStream(potentialPath),
+					path.basename(potentialPath)
+				);
+				continue;
+			} else if (isAbsolute && !allowAbsolute && exists) {
+				return failure(
+					"scheduleBuild",
+					`Absolute file paths are not allowed: ${potentialPath}`
+				);
+			}
+		}
+		form.append(key, String(value));
+	}
 
 	try {
-		const scheduledDate = parseScheduleTime(scheduleTime);
-		const now = new Date();
-		const delayInMs = scheduledDate.getTime() - now.getTime();
-		const delayInSeconds = Math.floor(delayInMs / 1000);
-
-		// Get CSRF token
-		let crumb = null;
-		let crumbField = null;
-		
-		try {
-			const crumbResponse = await client.get(`${client.baseUrl}/crumbIssuer/api/json`);
-			if (crumbResponse.status === 200) {
-				crumb = crumbResponse.data.crumb;
-				crumbField = crumbResponse.data.crumbRequestField || "Jenkins-Crumb";
-			}
-		} catch (error) {
-			// CSRF might be disabled
-			console.log("CSRF protection might be disabled or not accessible");
-		}
-
-		// Prepare headers
-		const headers = {
-			"Content-Type": "application/x-www-form-urlencoded",
-		};
-		
-		if (crumb && crumbField) {
-			headers[crumbField] = crumb;
-		}
-
-		// Build form data
-		const formData = new URLSearchParams();
-		
-		// Add delay parameter
-		formData.append("delay", `${delayInSeconds}sec`);
-		
-		// Add job parameters
-		Object.entries(parameters).forEach(([key, value]) => {
-			formData.append(key, String(value));
-		});
-
-		const hasParameters = Object.keys(parameters).length > 0;
-		const endpoint = hasParameters ? "buildWithParameters" : "build";
-		
-		// For non-parameterized builds with delay, add json parameter
-		if (!hasParameters) {
-			formData.append("json", JSON.stringify({ parameter: [] }));
-		}
-
-		const response = await client.post(
-			`${client.baseUrl}/job/${jobPath}/${endpoint}`,
-			formData.toString(),
-			{ headers }
+		const res = await client.post(
+			`${client.baseUrl}/job/${jobPath}/buildWithParameters?delay=${delayInSeconds}sec`,
+			form,
+			{ headers: form.getHeaders(), maxBodyLength: Infinity }
 		);
-
-		const isSuccess = isSuccessStatus(response.status);
-
-		if (isSuccess) {
-			const location =
-				response.headers["location"] || response.headers["Location"];
-			let queueId = null;
-
-			if (location) {
-				const match = location.match(/queue\/item\/(\d+)/);
-				queueId = match ? match[1] : null;
-			}
-
-			return {
-				success: true,
-				message: `Build scheduled successfully for ${jobFullName}`,
-				scheduledTime: scheduledDate.toISOString(),
-				scheduledTimeLocal: scheduledDate.toString(),
-				delayInSeconds: delayInSeconds,
-				queueUrl: location || null,
-				queueId: queueId,
-				statusCode: response.status,
-			};
-		} else {
-			return {
-				success: false,
-				message: `Failed to schedule build: ${response.status}`,
-				statusCode: response.status,
-				statusText: response.statusText,
-				data: response.data,
-			};
+		if (res.status >= 200 && res.status < 300) {
+			return success("scheduleBuild", {
+				status: res.status,
+				queueUrl: res.headers.location,
+			});
 		}
+		return failure(
+			"scheduleBuild",
+			`Schedule returned status ${res.status}`,
+			{ statusCode: res.status }
+		);
 	} catch (error) {
-		return formatError(error, "schedule build");
+		return formatError(error, "scheduleBuild");
 	}
 }
-
 
 /**
  * Update build display name and/or description
@@ -233,10 +186,11 @@ export async function updateBuild(client, args) {
 		);
 
 		if (buildInfo.status !== 200) {
-			return {
-				success: false,
-				message: `Build not found: ${jobFullName}#${buildPath}`,
-			};
+			return failure(
+				"updateBuild",
+				`Build not found: ${jobFullName}#${buildPath}`,
+				{ statusCode: buildInfo.status }
+			);
 		}
 
 		const actualBuildNumber = buildInfo.data.number;
@@ -292,14 +246,19 @@ export async function updateBuild(client, args) {
 			});
 		}
 
-		return {
-			success: updates.some((u) => u.success),
-			buildNumber: actualBuildNumber,
-			buildUrl: buildUrl,
-			updates: updates,
-		};
+		return updates.some((u) => u.success)
+			? success("updateBuild", {
+					buildNumber: actualBuildNumber,
+					buildUrl,
+					updates,
+			  })
+			: failure("updateBuild", "No updates applied", {
+					buildNumber: actualBuildNumber,
+					buildUrl,
+					updates,
+			  });
 	} catch (error) {
-		return formatError(error, "update build");
+		return formatError(error, "updateBuild");
 	}
 }
 
@@ -318,10 +277,11 @@ export async function stopBuild(client, args) {
 		);
 
 		if (buildInfo.status !== 200) {
-			return {
-				success: false,
-				message: `Build not found: ${jobFullName}#${buildPath}`,
-			};
+			return failure(
+				"stopBuild",
+				`Build not found: ${jobFullName}#${buildPath}`,
+				{ statusCode: buildInfo.status }
+			);
 		}
 
 		const actualBuildNumber = buildInfo.data.number;
@@ -329,12 +289,11 @@ export async function stopBuild(client, args) {
 		const buildUrl = buildInfo.data.url;
 
 		if (!isBuilding) {
-			return {
-				success: false,
-				message: `Build #${actualBuildNumber} is not currently running`,
-				buildResult: buildInfo.data.result,
-				buildUrl: buildUrl,
-			};
+			return failure(
+				"stopBuild",
+				`Build #${actualBuildNumber} is not currently running`,
+				{ buildResult: buildInfo.data.result, buildUrl }
+			);
 		}
 
 		// Try to stop the build (graceful stop)
@@ -344,13 +303,12 @@ export async function stopBuild(client, args) {
 		);
 
 		if (isSuccessStatus(stopResponse.status)) {
-			return {
-				success: true,
+			return success("stopBuild", {
 				message: `Build #${actualBuildNumber} stop request sent successfully`,
 				buildNumber: actualBuildNumber,
-				buildUrl: buildUrl,
+				buildUrl,
 				action: "stop",
-			};
+			});
 		}
 
 		// If stop fails, try kill (forceful termination)
@@ -360,21 +318,20 @@ export async function stopBuild(client, args) {
 		);
 
 		if (isSuccessStatus(killResponse.status)) {
-			return {
-				success: true,
+			return success("stopBuild", {
 				message: `Build #${actualBuildNumber} kill request sent successfully`,
 				buildNumber: actualBuildNumber,
-				buildUrl: buildUrl,
+				buildUrl,
 				action: "kill",
-			};
+			});
 		}
 
-		return {
-			success: false,
-			message: `Failed to stop build #${actualBuildNumber}`,
-			statusCode: stopResponse.status,
-		};
+		return failure(
+			"stopBuild",
+			`Failed to stop build #${actualBuildNumber}`,
+			{ statusCode: stopResponse.status }
+		);
 	} catch (error) {
-		return formatError(error, "stop build");
+		return formatError(error, "stopBuild");
 	}
 }

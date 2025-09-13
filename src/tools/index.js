@@ -15,7 +15,11 @@ import {
 	listBuildArtifacts,
 	readBuildArtifact,
 } from "./artifact-management.js";
-import { cancelQueuedBuild, getQueueInfo } from "./queue-management.js";
+import {
+	cancelQueuedBuild,
+	getQueueInfo,
+	getQueueItem,
+} from "./queue-management.js";
 
 /**
  * Tool definitions with their schemas and handlers
@@ -24,22 +28,22 @@ export const toolRegistry = {
 	// Build Management Tools
 	triggerBuild: {
 		name: "triggerBuild",
-		description: "Trigger a build for a Jenkins job",
+		description:
+			"Trigger a Jenkins job build with file and regular parameters",
 		inputSchema: {
 			type: "object",
 			properties: {
 				jobFullName: {
 					type: "string",
-					description:
-						'Full path of the Jenkins job (e.g., "folder/job-name")',
+					description: 'Jenkins job name (e.g., "PlaywrightBDD")',
 				},
 				parameters: {
 					type: "object",
-					description: "Build parameters (optional)",
+					description: "Build parameters including file paths",
 					additionalProperties: true,
 				},
 			},
-			required: ["jobFullName"],
+			required: ["jobFullName", "parameters"],
 		},
 		handler: triggerBuild,
 	},
@@ -67,26 +71,31 @@ export const toolRegistry = {
 
 	scheduleBuild: {
 		name: "scheduleBuild",
-		description: "Schedule a Jenkins build to run at a specific time",
+		description:
+			"Schedule a Jenkins build with file and regular parameters to run at a specific time",
 		inputSchema: {
 			type: "object",
 			properties: {
 				jobFullName: {
 					type: "string",
-					description: "Full path of the Jenkins job",
+					description: 'Jenkins job name (e.g., "PlaywrightBDD")',
 				},
 				scheduleTime: {
 					type: "string",
 					description:
-						"Time to schedule the build (e.g., '22:15', '10:30 PM', or full datetime string)",
+						"When to run the build (e.g., 'in 5 minutes', 'at 3:30 PM', '2024-12-20 15:30')",
 				},
 				parameters: {
 					type: "object",
-					description: "Build parameters (optional)",
+					description: "Build parameters including file paths",
 					additionalProperties: true,
 				},
+				description: {
+					type: "string",
+					description: "Optional description for the scheduled build",
+				},
 			},
-			required: ["jobFullName", "scheduleTime"],
+			required: ["jobFullName", "scheduleTime", "parameters"],
 		},
 		handler: scheduleBuild,
 	},
@@ -295,6 +304,23 @@ export const toolRegistry = {
 			},
 		},
 		handler: getQueueInfo,
+	},
+
+	getQueueItem: {
+		name: "getQueueItem",
+		description:
+			"Get a specific queued item by queueId and see whether it transitioned to a build",
+		inputSchema: {
+			type: "object",
+			properties: {
+				queueId: {
+					type: "integer",
+					description: "Queue item ID (from triggerBuild result)",
+				},
+			},
+			required: ["queueId"],
+		},
+		handler: getQueueItem,
 	},
 };
 

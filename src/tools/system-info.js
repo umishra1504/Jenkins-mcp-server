@@ -2,7 +2,7 @@
  * System Information Tools
  */
 
-import { formatError } from "../utils/jenkins.js";
+import { formatError, success, failure } from "../utils/jenkins.js";
 
 /**
  * Get information about the current authenticated user
@@ -11,15 +11,11 @@ export async function whoAmI(client) {
 	try {
 		const response = await client.get("/whoAmI/api/json");
 		if (response.status === 200) {
-			return {
-				success: true,
-				user: response.data,
-			};
+			return success("whoAmI", { user: response.data });
 		}
-		return {
-			success: false,
-			message: "Failed to get user info",
-		};
+		return failure("whoAmI", "Failed to get user info", {
+			statusCode: response.status,
+		});
 	} catch (error) {
 		return formatError(error, "get user info");
 	}
@@ -49,10 +45,7 @@ export async function getStatus(client) {
 				})) || [],
 		};
 
-		return {
-			success: true,
-			status,
-		};
+		return success("getStatus", { status });
 	} catch (error) {
 		return formatError(error, "get status");
 	}
