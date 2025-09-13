@@ -2,29 +2,31 @@
  * Job Information Tools
  */
 
-import { encodeJobPath, formatError } from "../utils/jenkins.js";
+import {
+	encodeJobPath,
+	formatError,
+	success,
+	failure,
+} from "../utils/jenkins.js";
 
 /**
  * Get information about a Jenkins job
  */
 export async function getJob(client, args) {
 	const { jobFullName } = args;
+	if (!jobFullName) return failure("getJob", "jobFullName is required");
 	const jobPath = encodeJobPath(jobFullName);
 
 	try {
 		const response = await client.get(`/job/${jobPath}/api/json`);
 		if (response.status === 200) {
-			return {
-				success: true,
-				job: response.data,
-			};
+			return success("getJob", { job: response.data });
 		}
-		return {
-			success: false,
-			message: `Job not found: ${jobFullName}`,
-		};
+		return failure("getJob", `Job not found: ${jobFullName}`, {
+			statusCode: response.status,
+		});
 	} catch (error) {
-		return formatError(error, "get job");
+		return formatError(error, "getJob");
 	}
 }
 
@@ -33,6 +35,7 @@ export async function getJob(client, args) {
  */
 export async function getBuild(client, args) {
 	const { jobFullName, buildNumber = null } = args;
+	if (!jobFullName) return failure("getBuild", "jobFullName is required");
 	const jobPath = encodeJobPath(jobFullName);
 	const buildPath = buildNumber || "lastBuild";
 
@@ -41,17 +44,15 @@ export async function getBuild(client, args) {
 			`/job/${jobPath}/${buildPath}/api/json`
 		);
 		if (response.status === 200) {
-			return {
-				success: true,
-				build: response.data,
-			};
+			return success("getBuild", { build: response.data });
 		}
-		return {
-			success: false,
-			message: `Build not found: ${jobFullName}#${buildPath}`,
-		};
+		return failure(
+			"getBuild",
+			`Build not found: ${jobFullName}#${buildPath}`,
+			{ statusCode: response.status }
+		);
 	} catch (error) {
-		return formatError(error, "get build");
+		return formatError(error, "getBuild");
 	}
 }
 
@@ -59,7 +60,9 @@ export async function getBuild(client, args) {
  * Get a paginated list of Jenkins jobs
  */
 export async function getJobs(client, args = {}) {
-	const { parentFullName = "", skip = 0, limit = 10 } = args;
+	let { parentFullName = "", skip = 0, limit = 10 } = args;
+	skip = Math.max(0, parseInt(skip, 10) || 0);
+	limit = Math.min(10, Math.max(1, parseInt(limit, 10) || 10));
 	const basePath = parentFullName
 		? `/job/${encodeJobPath(parentFullName)}`
 		: "";
@@ -73,22 +76,18 @@ export async function getJobs(client, args = {}) {
 			const sortedJobs = jobs.sort((a, b) =>
 				a.name.localeCompare(b.name)
 			);
-			const paginatedJobs = sortedJobs.slice(
-				skip,
-				skip + Math.min(limit, 10)
-			);
-
-			return {
-				success: true,
+			const paginatedJobs = sortedJobs.slice(skip, skip + limit);
+			return success("getJobs", {
 				jobs: paginatedJobs,
 				total: jobs.length,
-			};
+				skip,
+				limit,
+			});
 		}
-		return {
-			success: false,
-			message: "Failed to get jobs",
-		};
+		return failure("getJobs", "Failed to get jobs", {
+			statusCode: response.status,
+		});
 	} catch (error) {
-		return formatError(error, "get jobs");
+		return formatError(error, "getJobs");
 	}
 }

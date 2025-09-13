@@ -111,24 +111,44 @@ export function isSuccessStatus(statusCode) {
  * @returns {object} - Formatted error response
  */
 export function formatError(error, operation) {
+	const status = error.response?.status;
 	const errorInfo = {
 		success: false,
-		message: error.message,
 		operation,
-		statusCode: error.response?.status,
+		message: error.message,
+		statusCode: status,
+		code: error.code,
 	};
 
-	if (error.response?.status === 403) {
+	if (status === 403) {
 		errorInfo.authError = true;
 		errorInfo.message =
 			"Permission denied - check job permissions or CSRF settings";
-	} else if (error.response?.status === 401) {
+	} else if (status === 401) {
 		errorInfo.authError = true;
 		errorInfo.message =
 			"Authentication failed - check username and API token";
-	} else if (error.response?.status === 404) {
+	} else if (status === 404) {
 		errorInfo.message = `Resource not found during ${operation}`;
 	}
 
+	if (error.response?.data && typeof error.response.data === "object") {
+		errorInfo.responseData = error.response.data;
+	}
+
 	return errorInfo;
+}
+
+/**
+ * Uniform success envelope
+ */
+export function success(operation, data = {}) {
+	return { success: true, operation, ...data };
+}
+
+/**
+ * Uniform failure envelope
+ */
+export function failure(operation, message, meta = {}) {
+	return { success: false, operation, message, ...meta };
 }

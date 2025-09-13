@@ -18,10 +18,15 @@
  */
 
 import { JenkinsMcpServer } from "./server/mcp-server.js";
+import { validateConfig } from "./config/index.js";
 
 // Start the Jenkins MCP Server
 async function main() {
 	try {
+		// Validate configuration before starting server
+		if (!validateConfig()) {
+			process.exit(1);
+		}
 		const server = new JenkinsMcpServer();
 		await server.start();
 	} catch (error) {

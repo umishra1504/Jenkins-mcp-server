@@ -9,24 +9,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **EliteA MCP Client Compatibility**: Fixed triggerBuild and scheduleBuild not working with EliteA client
-  - Improved parameter detection to handle different argument formats from various MCP clients
-  - Added robust argument parsing for jobFullName and parameters
-  - Fixed "Nothing is submitted" error when triggering builds with parameters
-  - Added debug logging for better troubleshooting
-  - Enhanced parameter validation and error reporting
+-   **EliteA MCP Client Compatibility**: Fixed triggerBuild and scheduleBuild not working with EliteA client
+    -   Improved parameter detection to handle different argument formats from various MCP clients
+    -   Added robust argument parsing for jobFullName and parameters
+    -   Fixed "Nothing is submitted" error when triggering builds with parameters
+    -   Added debug logging for better troubleshooting
+    -   Enhanced parameter validation and error reporting
 
 ### Added
 
-- **Debug Logging**: Added console.log statements to help diagnose build trigger issues
-- **Better Error Messages**: More descriptive error messages when parameters are missing
-- **MCP Client Agnostic**: Works with VS Code Copilot, Claude Desktop, EliteA, and other MCP clients
+-   **Debug Logging**: Added console.log statements to help diagnose build trigger issues
+-   **Better Error Messages**: More descriptive error messages when parameters are missing
+-   **MCP Client Agnostic**: Works with VS Code Copilot, Claude Desktop, EliteA, and other MCP clients
 
 ### Removed
 
-- **Setup Scripts**: Removed setup.sh and setup.ps1 automated setup scripts
-- **GITHUB_SETUP.md**: Removed redundant GitHub setup documentation
-- Keep comprehensive USER_GUIDE.md for detailed setup instructions
+-   **Setup Scripts**: Removed setup.sh and setup.ps1 automated setup scripts
+-   **GITHUB_SETUP.md**: Removed redundant GitHub setup documentation
+-   Keep comprehensive USER_GUIDE.md for detailed setup instructions
 
 ## [1.0.1] - 2025-09-04
 
